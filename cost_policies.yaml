@@ -1,0 +1,125 @@
+# Capacity and Cost Simulator cost model.
+#
+# IMPORTANT:
+# These rates are illustrative planning defaults, not current cloud-provider prices.
+# Replace them with rates derived from your provider, region, discounts, commitments,
+# cluster pricing model, and internal chargeback rules before using results for budgets.
+#
+# The simulator should only calculate savings for resources whose before/after costs
+# can be estimated with a known pricing rule.
+
+metadata:
+  policy_name: baseline-kubernetes-resource-costs
+  policy_version: "1.0.0"
+  currency: USD
+  pricing_basis: estimated_hourly_resource_rates
+  last_reviewed: "2026-10-04"
+  disclaimer: "Illustrative baseline rates; validate against actual provider pricing and billing data."
+
+calculation:
+  hours_per_month: 730
+  months_per_year: 12
+  rounding_decimal_places: 2
+  apply_shared_overhead: true
+  shared_overhead_percent: 5.0
+  calculate_annualized_savings: true
+  savings_sign_convention:
+    positive: "estimated reduction in monthly cost"
+    negative: "estimated monthly cost increase"
+  unknown_price_behavior: "mark_cost_unknown_and_do_not_claim_savings"
+
+resource_rates:
+  # Estimated allocatable-resource rates, in USD per unit per hour.
+  # These rates are a simple simulation model, not a direct mapping to any single VM.
+  cpu:
+    unit: vCPU
+    usd_per_unit_hour: 0.035
+    description: "Illustrative hourly cost allocated per requested vCPU."
+  memory:
+    unit: GiB
+    usd_per_unit_hour: 0.004
+    description: "Illustrative hourly cost allocated per requested GiB of memory."
+  gpu:
+    unit: GPU
+    usd_per_unit_hour: 0.75
+    description: "Illustrative GPU allocation rate; replace with a workload/provider-specific rate."
+  ephemeral_storage:
+    unit: GiB
+    usd_per_unit_hour: 0.00015
+    description: "Illustrative ephemeral storage allocation rate."
+
+workload_adjustments:
+  # Multipliers can approximate relative overhead for workload types. Keep at 1.0
+  # unless you have a defensible internal model for the adjustment.
+  default_multiplier: 1.0
+  kinds:
+    Deployment: 1.0
+    StatefulSet: 1.05
+    DaemonSet: 1.0
+    Job: 1.0
+    CronJob: 1.0
+
+namespace_adjustments:
+  default_multiplier: 1.0
+  multipliers:
+    production: 1.0
+    staging: 0.75
+    development: 0.5
+  # Namespace-specific multipliers are optional and should be maintained locally.
+  exact_namespaces: {}
+
+shared_costs:
+  # Optional monthly costs allocated across workloads. Zero means no extra amount
+  # is added by this baseline policy.
+  cluster_control_plane_monthly_usd: 0.0
+  platform_support_monthly_usd: 0.0
+  observability_monthly_usd: 0.0
+  allocation_method: "proportional_to_estimated_compute_cost"
+
+savings_policy:
+  require_known_before_cost: true
+  require_known_after_cost: true
+  require_capacity_floor: true
+  apply_safety_margin_percent: 20.0
+  minimum_monthly_savings_usd: 10.0
+  minimum_savings_percent: 5.0
+  maximum_request_reduction_percent: 70.0
+  do_not_assume_zero_cost_for_unknown_resources: true
+  exclude_protected_namespaces: true
+  excluded_namespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+  exclude_resources_with_label:
+    simulator.example.com/ignore: "true"
+  require_metrics_for_utilization_based_savings: true
+
+business_value:
+  metrics:
+    - estimated_monthly_cost_before_usd
+    - estimated_monthly_cost_after_usd
+    - estimated_monthly_savings_usd
+    - estimated_annualized_savings_usd
+    - estimated_savings_percent
+    - cpu_millicores_released
+    - memory_mib_released
+    - recommendation_count
+    - high_risk_recommendation_count
+  benefit_categories:
+    cost:
+      weight: 0.35
+      description: "Estimated reduction in resource allocation cost."
+    capacity:
+      weight: 0.25
+      description: "CPU and memory capacity released for other workloads."
+    reliability:
+      weight: 0.25
+      description: "Potential improvement from safer requests, limits, and replica guidance."
+    implementation_effort:
+      weight: 0.15
+      description: "Preference for recommendations that are simpler to validate and implement."
+  reporting_rules:
+    label_all_outputs_as_estimates: true
+    do_not_equate_request_reduction_with_realized_invoice_savings: true
+    state_assumptions_with_each_summary: true
+    report_cost_increases_as_negative_savings: true

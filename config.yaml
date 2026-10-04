@@ -1,0 +1,226 @@
+# Capacity and Cost Simulator
+# Runtime settings for Kubernetes analysis, cost estimation, optimization scoring,
+# business-value reporting, and safe recommendation generation.
+#
+# Cost outputs are estimates based on cost_policies.yaml. They are not provider
+# invoices or live cloud quotes. Calibrate the rates to your contracts and region.
+
+application:
+  name: capacity-and-cost-simulator
+  version: "1.0.0"
+  description: "Kubernetes capacity optimization with estimated cost and business-value reporting"
+  environment: development
+  log_level: INFO
+  timezone: UTC
+
+input:
+  # Supported sources:
+  # - yaml_directory: read Kubernetes manifest YAML files from a directory
+  # - kubernetes_api: inspect the current cluster using the active kubeconfig/context
+  default_source: yaml_directory
+  manifest_directory: ./manifests
+  kube_context: null
+  kubeconfig_path: null
+  include_cluster_scoped_resources: true
+  fail_on_invalid_manifest: true
+  allowed_manifest_extensions:
+    - .yaml
+    - .yml
+    - .json
+
+analysis:
+  # Include these workload types in the capacity/cost inventory.
+  workload_kinds:
+    - Deployment
+    - StatefulSet
+    - DaemonSet
+    - Job
+    - CronJob
+  include_standalone_pods: false
+  include_completed_jobs: false
+  include_init_containers: true
+  include_ephemeral_containers: false
+  include_sidecars: true
+  ignore_namespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+  ignore_namespaces_by_prefix:
+    - monitoring-system-
+  ignore_labels:
+    simulator.example.com/ignore: "true"
+  resource_fields:
+    cpu_request: requests.cpu
+    cpu_limit: limits.cpu
+    memory_request: requests.memory
+    memory_limit: limits.memory
+  default_missing_requests:
+    cpu_millicores: 0
+    memory_mib: 0
+  default_missing_limits:
+    cpu_millicores: null
+    memory_mib: null
+  report_missing_requests_as_findings: true
+  report_missing_limits_as_findings: true
+
+capacity:
+  # Utilization thresholds are interpreted as percentages.
+  cpu:
+    target_utilization_percent: 65
+    low_utilization_percent: 20
+    high_utilization_percent: 85
+    minimum_request_millicores: 25
+    rounding_increment_millicores: 25
+  memory:
+    target_utilization_percent: 70
+    low_utilization_percent: 25
+    high_utilization_percent: 90
+    minimum_request_mib: 32
+    rounding_increment_mib: 32
+  # Recommendations based on observed utilization require metrics data.
+  metrics:
+    enabled: false
+    source: none
+    lookback_hours: 168
+    percentile: 95
+    stale_after_minutes: 15
+    missing_metrics_behavior: "recommendation_only"
+  replicas:
+    minimum_for_stateless_production: 2
+    minimum_for_stateless_nonproduction: 1
+    flag_single_replica_production: true
+    recommend_hpa_when_metrics_available: true
+    hpa_min_replicas_default: 2
+    hpa_max_replicas_default: 10
+  node_headroom:
+    cpu_percent: 15
+    memory_percent: 20
+  scheduling:
+    flag_missing_requests: true
+    flag_missing_limits: true
+    flag_request_greater_than_limit: true
+    flag_cpu_request_above_limit: true
+    flag_memory_request_above_limit: true
+
+cost:
+  currency: USD
+  hours_per_month: 730
+  days_per_month: 30
+  pricing_model: "estimated_hourly_resource_rates"
+  policy_file: cost_policies.yaml
+  # When enabled, cost output is marked as estimated rather than an invoice value.
+  label_estimates_clearly: true
+  include_shared_overhead: true
+  shared_overhead:
+    control_plane_monthly: 0.0
+    support_monthly: 0.0
+    overhead_percent: 5.0
+  # Do not report savings for a recommendation if its estimated cost is unknown.
+  require_pricing_for_savings_claim: true
+  report_monthly_and_annualized_values: true
+  annualization_months: 12
+  savings:
+    minimum_monthly_savings_to_highlight: 10.0
+    minimum_savings_percent_to_highlight: 5.0
+    maximum_recommended_request_reduction_percent: 70.0
+    require_capacity_floor: true
+    apply_safety_margin_percent: 20.0
+  business_value:
+    report_monthly_cost_delta: true
+    report_annualized_cost_delta: true
+    report_cpu_millicores_released: true
+    report_memory_mib_released: true
+    report_cost_per_workload: true
+    report_cost_per_namespace: true
+
+optimization:
+  enabled: true
+  modes:
+    - analyze
+    - recommend
+  # The tool generates recommendations; it does not patch workloads by default.
+  apply_changes: false
+  require_human_approval_for_changes: true
+  allow_automatic_scale_down: false
+  allow_automatic_resource_patch: false
+  generate_hpa_manifests: false
+  generate_patch_manifests: false
+  recommendations:
+    rightsize_requests: true
+    identify_unused_requests: true
+    detect_missing_requests_and_limits: true
+    detect_excessive_replicas: true
+    recommend_hpa: true
+    detect_low_replica_availability_risk: true
+    detect_node_capacity_pressure: true
+    suggest_pod_disruption_budgets: true
+    rank_by_monthly_savings: true
+  scoring:
+    cost_savings_weight: 0.35
+    capacity_efficiency_weight: 0.25
+    reliability_weight: 0.25
+    implementation_effort_weight: 0.15
+    minimum_recommendation_score: 0.30
+  risk:
+    production_scale_down_requires_review: true
+    stateful_workload_changes_require_review: true
+    critical_namespace_changes_require_review: true
+    block_recommendations_below_minimum_capacity_floor: true
+    protected_namespaces:
+      - kube-system
+      - kube-public
+      - kube-node-lease
+    protected_labels:
+      simulator.example.com/protected: "true"
+
+policy:
+  fail_on_unknown_rule_type: true
+  fail_on_invalid_policy: true
+  severity_order:
+    - info
+    - low
+    - medium
+    - high
+    - critical
+  blocking_severities:
+    - critical
+  maximum_recommendations: 100
+  maximum_manifest_file_size_bytes: 10000000
+
+reporting:
+  output_directory: ./reports
+  output_formats:
+    - json
+    - markdown
+  include_input_summary: true
+  include_resource_inventory: true
+  include_capacity_findings: true
+  include_cost_breakdown: true
+  include_recommendations: true
+  include_assumptions_and_limitations: true
+  redact_secret_values: true
+  sort_recommendations_by:
+    - risk_adjusted_savings
+    - recommendation_score
+  decimal_places: 2
+
+audit:
+  enabled: true
+  log_path: ./reports/capacity_cost_audit.jsonl
+  record_input_source: true
+  record_resource_counts: true
+  record_policy_versions: true
+  record_recommendations: true
+  record_errors: true
+  # Do not store Kubernetes Secret data or raw credentials in audit records.
+  include_sensitive_resource_values: false
+
+safety:
+  read_only_by_default: true
+  require_explicit_flag_for_cluster_access: true
+  require_explicit_flag_for_any_mutation: true
+  mutation_disabled_by_default: true
+  do_not_read_secret_data: true
+  do_not_write_cluster_changes: true
+  warn_when_metrics_are_unavailable: true
+  warn_when_pricing_is_estimated: true

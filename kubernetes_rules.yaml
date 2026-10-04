@@ -1,0 +1,268 @@
+# Kubernetes capacity, reliability, and optimization policy rules.
+#
+# Rules are policy definitions for the simulator. The Python rule evaluator must
+# implement the declared rule types for these entries to have an effect.
+# Thresholds and examples are baseline recommendations; tune them for your SLOs,
+# workload behavior, and organization standards.
+
+metadata:
+  policy_name: baseline-kubernetes-capacity-rules
+  policy_version: "1.0.0"
+  description: "Starter rules for resource sizing, workload availability, and safe optimization."
+
+settings:
+  enabled: true
+  default_severity: medium
+  fail_on_unknown_resource_values: false
+  require_explanation_for_recommendation: true
+  require_metrics_for_utilization_based_rightsizing: true
+  exclude_namespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+  exclude_labels:
+    simulator.example.com/ignore: "true"
+  protected_labels:
+    simulator.example.com/protected: "true"
+
+rules:
+  - id: K8S001
+    name: missing_cpu_request
+    enabled: true
+    type: missing_resource_request
+    resource: cpu
+    severity: high
+    blocking: false
+    recommendation: "Set a CPU request based on measured demand and an agreed safety margin."
+    rationale: "Missing CPU requests can make scheduling and capacity planning less predictable."
+
+  - id: K8S002
+    name: missing_memory_request
+    enabled: true
+    type: missing_resource_request
+    resource: memory
+    severity: high
+    blocking: false
+    recommendation: "Set a memory request based on measured working-set demand and a safety margin."
+    rationale: "Missing memory requests can lead to inaccurate bin-packing and capacity estimates."
+
+  - id: K8S003
+    name: missing_cpu_limit
+    enabled: true
+    type: missing_resource_limit
+    resource: cpu
+    severity: medium
+    blocking: false
+    recommendation: "Review whether a CPU limit is required by your platform policy and workload behavior."
+    rationale: "CPU limits are a policy choice; setting them without load testing can introduce throttling."
+
+  - id: K8S004
+    name: missing_memory_limit
+    enabled: true
+    type: missing_resource_limit
+    resource: memory
+    severity: high
+    blocking: false
+    recommendation: "Define a memory limit based on observed peak usage and the workload's failure behavior."
+    rationale: "Unbounded memory usage can contribute to node pressure and out-of-memory termination."
+
+  - id: K8S005
+    name: cpu_request_exceeds_limit
+    enabled: true
+    type: request_greater_than_limit
+    resource: cpu
+    severity: high
+    blocking: false
+    recommendation: "Correct the CPU request/limit relationship and validate the manifest before deployment."
+    rationale: "A request greater than its corresponding limit is an invalid or inconsistent configuration."
+
+  - id: K8S006
+    name: memory_request_exceeds_limit
+    enabled: true
+    type: request_greater_than_limit
+    resource: memory
+    severity: critical
+    blocking: true
+    recommendation: "Correct the memory request/limit relationship before deployment."
+    rationale: "A request greater than its corresponding limit is an invalid or inconsistent configuration."
+
+  - id: K8S007
+    name: low_cpu_utilization
+    enabled: true
+    type: utilization_below_threshold
+    resource: cpu
+    threshold_percent: 20
+    minimum_observation_hours: 24
+    severity: medium
+    blocking: false
+    recommendation: "Evaluate reducing the CPU request using representative usage data and a safety margin."
+    rationale: "Persistently low CPU utilization may indicate over-allocation; short samples are insufficient."
+
+  - id: K8S008
+    name: low_memory_utilization
+    enabled: true
+    type: utilization_below_threshold
+    resource: memory
+    threshold_percent: 25
+    minimum_observation_hours: 72
+    severity: medium
+    blocking: false
+    recommendation: "Evaluate memory request sizing using peak and percentile working-set measurements."
+    rationale: "Memory rightsizing should account for spikes, caches, startup behavior, and OOM risk."
+
+  - id: K8S009
+    name: high_cpu_utilization
+    enabled: true
+    type: utilization_above_threshold
+    resource: cpu
+    threshold_percent: 85
+    minimum_observation_minutes: 30
+    severity: high
+    blocking: false
+    recommendation: "Review CPU requests, throttling, workload performance, and horizontal scaling options."
+    rationale: "Sustained high CPU use can indicate insufficient capacity or a workload bottleneck."
+
+  - id: K8S010
+    name: high_memory_utilization
+    enabled: true
+    type: utilization_above_threshold
+    resource: memory
+    threshold_percent: 90
+    minimum_observation_minutes: 30
+    severity: critical
+    blocking: false
+    recommendation: "Review memory demand, limit settings, restart history, and available node headroom."
+    rationale: "High memory utilization may increase the risk of OOM termination or node memory pressure."
+
+  - id: K8S011
+    name: single_replica_production_workload
+    enabled: true
+    type: replica_count_below_minimum
+    workload_kinds:
+      - Deployment
+    environment: production
+    minimum_replicas: 2
+    severity: high
+    blocking: false
+    recommendation: "Review whether at least two replicas are needed for availability and disruption tolerance."
+    rationale: "A single replica can be a single point of failure; workload behavior and cost must both be considered."
+
+  - id: K8S012
+    name: excessive_replica_count
+    enabled: true
+    type: replica_count_above_threshold
+    workload_kinds:
+      - Deployment
+      - StatefulSet
+    threshold_replicas: 20
+    severity: medium
+    blocking: false
+    recommendation: "Compare replica count with demand, scaling policies, and per-replica resource requests."
+    rationale: "A high replica count is not inherently wrong, but it merits a capacity and cost review."
+
+  - id: K8S013
+    name: missing_horizontal_pod_autoscaler
+    enabled: true
+    type: recommend_hpa
+    workload_kinds:
+      - Deployment
+    require_metrics: true
+    severity: low
+    blocking: false
+    recommendation: "Consider a HorizontalPodAutoscaler with tested minimum and maximum replica bounds."
+    rationale: "Autoscaling can help match capacity to demand when metrics and scaling behavior are configured correctly."
+
+  - id: K8S014
+    name: missing_pod_disruption_budget
+    enabled: true
+    type: recommend_pod_disruption_budget
+    workload_kinds:
+      - Deployment
+      - StatefulSet
+    minimum_replicas: 2
+    severity: medium
+    blocking: false
+    recommendation: "Consider a PodDisruptionBudget that matches availability objectives and maintenance practices."
+    rationale: "A disruption budget can limit voluntary disruptions but does not guarantee application availability."
+
+  - id: K8S015
+    name: stateful_workload_rightsizing_review
+    enabled: true
+    type: require_manual_review
+    workload_kinds:
+      - StatefulSet
+    severity: high
+    blocking: false
+    recommendation: "Require a workload-owner review before applying resource or replica reductions."
+    rationale: "Stateful workloads may have storage, quorum, recovery, and throughput constraints."
+
+  - id: K8S016
+    name: protected_namespace_change
+    enabled: true
+    type: protected_namespace
+    namespaces:
+      - kube-system
+      - kube-public
+      - kube-node-lease
+    severity: critical
+    blocking: true
+    recommendation: "Do not propose automated optimization for protected Kubernetes system namespaces."
+    rationale: "Changes to system components can affect cluster-wide operation."
+
+  - id: K8S017
+    name: request_reduction_exceeds_safe_cap
+    enabled: true
+    type: maximum_recommended_reduction_percent
+    maximum_reduction_percent: 70
+    severity: high
+    blocking: false
+    recommendation: "Limit any proposed request reduction to the configured cap and retain a validated safety margin."
+    rationale: "Large reductions based on incomplete or unrepresentative metrics can cause scheduling or runtime failures."
+
+  - id: K8S018
+    name: insufficient_metrics_for_rightsizing
+    enabled: true
+    type: require_metrics_for_recommendation
+    recommendation_categories:
+      - cpu_rightsizing
+      - memory_rightsizing
+      - utilization_based_savings
+    minimum_observation_hours: 24
+    severity: medium
+    blocking: false
+    recommendation: "Report sizing as a hypothesis until representative metrics are available."
+    rationale: "Manifest requests alone do not reveal actual workload utilization."
+
+  - id: K8S019
+    name: unknown_cost_rate
+    enabled: true
+    type: require_known_cost_rate_for_savings
+    severity: medium
+    blocking: false
+    recommendation: "Mark the cost as unknown and do not claim savings until an applicable rate is configured."
+    rationale: "A numerical savings estimate is not defensible when the underlying price is unknown."
+
+  - id: K8S020
+    name: production_scale_down_requires_review
+    enabled: true
+    type: require_manual_review
+    environment: production
+    action_categories:
+      - scale_down
+      - cpu_rightsizing
+      - memory_rightsizing
+    severity: high
+    blocking: false
+    recommendation: "Require workload-owner approval and a rollback plan before production reductions."
+    rationale: "Cost optimization must not override reliability objectives or change-management controls."
+
+recommendation_safety:
+  default_action: recommend_only
+  apply_changes: false
+  require_human_approval: true
+  never_modify_protected_namespaces: true
+  never_claim_savings_without_known_prices: true
+  never_rightsize_from_missing_metrics_alone: true
+  preserve_minimum_replica_policy: true
+  preserve_configured_resource_floor: true
+  require_explanation_and_assumptions: true

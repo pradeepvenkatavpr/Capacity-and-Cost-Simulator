@@ -1,0 +1,4 @@
+# Core configuration and Kubernetes API dependencies for Capacity and Cost Simulator.
+# Recommended runtime: Python 3.11+.
+PyYAML>=6.0.2,<7.0
+kubernetes>=31.0.0,<36.0.0
